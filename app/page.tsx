@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { LayoutDashboard, CheckCircle, AlertCircle, Users, CheckSquare, Activity, Search } from 'lucide-react';
+import { LayoutDashboard, CheckCircle, AlertCircle, Users, CheckSquare, Activity, Search, Calendar, X } from 'lucide-react';
 
 // --- TYPE DEFINITIONS ---
 
@@ -38,6 +38,8 @@ interface StatCardProps {
   value: number | string;
   icon: React.ElementType;
   colorClass: string;
+  onClick?: () => void;
+  isActive?: boolean;
 }
 
 // RTA Branded Palette
@@ -60,8 +62,11 @@ const formatDate = (dateStr: string) => {
 
 // --- COMPONENTS ---
 
-const StatCard = ({ title, value, icon: Icon, colorClass }: StatCardProps) => (
-  <div className="bg-white p-6 rounded-lg shadow-sm border border-slate-100 flex items-center space-x-4">
+const StatCard = ({ title, value, icon: Icon, colorClass, onClick, isActive }: StatCardProps) => (
+  <div
+    className={`bg-white p-6 rounded-lg shadow-sm border flex items-center space-x-4 cursor-pointer hover:shadow-md transition-all ${isActive ? 'ring-2 ring-[#EE3124] border-[#EE3124]' : 'border-slate-100'}`}
+    onClick={onClick}
+  >
     <div className={`p-3 rounded-md ${colorClass}`}>
       <Icon className="w-6 h-6 text-white" />
     </div>
@@ -76,17 +81,42 @@ export default function ManagerDashboard() {
   const [filterUser, setFilterUser] = useState<string>('All');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
+  // --- DATE PICKER STATE ---
+  const getTodayString = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0]; // YYYY-MM-DD
+  };
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayString());
+
+  // --- FILTER STATES ---
+  const [filterStatus, setFilterStatus] = useState<string>('All');
+  const [filterUrgent, setFilterUrgent] = useState<boolean>(false);
+
   // --- STATE ---
   const [apiData, setApiData] = useState<ApiWorkItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // --- CLEAR ALL FILTERS ---
+  const clearFilters = () => {
+    setFilterUser('All');
+    setFilterStatus('All');
+    setFilterUrgent(false);
+    setSearchTerm('');
+  };
+
+  const hasActiveFilters = filterUser !== 'All' || filterStatus !== 'All' || filterUrgent || searchTerm !== '';
+
   useEffect(() => {
     const fetchData = async () => {
+      setIsLoading(true);
+      setError(null);
       try {
-        // Fetch through the Next.js API proxy route
-        // This runs server-side and proxies to localhost:8081
-        const response = await fetch('/daily-reports/api/reports');
+        // Fetch through the Next.js API proxy route with date filter
+        const url = selectedDate
+          ? `/daily-reports/api/reports?date=${selectedDate}`
+          : '/daily-reports/api/reports';
+        const response = await fetch(url);
         if (!response.ok) {
           throw new Error(`Failed to fetch data: ${response.statusText}`);
         }
@@ -101,7 +131,7 @@ export default function ManagerDashboard() {
     };
 
     fetchData();
-  }, []);
+  }, [selectedDate]);
 
   // --- MEMOIZED RELATIONAL DATA ---
   const { processedData, stats, chartData, userList } = useMemo(() => {
@@ -150,11 +180,13 @@ export default function ManagerDashboard() {
     return { processedData: data, stats: { total, closed, active, urgent }, chartData: { pieData }, userList: uniqueUsers };
   }, [apiData, isLoading, error]);
 
-  // Filter Logic
+  // Filter Logic - includes user, status, search, and urgency
   const filteredItems = processedData.filter(item => {
     const matchesUser = filterUser === 'All' || item.AssignedTo === filterUser;
+    const matchesStatus = filterStatus === 'All' || item.State === filterStatus;
     const matchesSearch = item.Title.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesUser && matchesSearch;
+    const matchesUrgent = !filterUrgent || item.Custom_Urgency === 'Immediate';
+    return matchesUser && matchesStatus && matchesSearch && matchesUrgent;
   });
 
   if (isLoading) {
@@ -185,9 +217,15 @@ export default function ManagerDashboard() {
           <p className="text-slate-500 mt-1 text-sm">Daily Team Operations Report</p>
         </div>
         <div className="flex items-center space-x-3 mt-4 md:mt-0">
-          <div className="text-right mr-6 hidden md:block">
-            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Current Period</p>
-            <p className="font-bold text-[#EE3124]">Jan 2026</p>
+          {/* Date Picker */}
+          <div className="flex items-center space-x-2 mr-4">
+            <Calendar className="w-5 h-5 text-[#EE3124]" />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#EE3124] focus:border-transparent cursor-pointer"
+            />
           </div>
           <button className="bg-[#EE3124] hover:bg-red-700 text-white px-5 py-2.5 rounded-md text-sm font-semibold shadow-sm transition-colors">
             Export Report
@@ -195,12 +233,40 @@ export default function ManagerDashboard() {
         </div>
       </div>
 
-      {/* Stats Row - RTA Colors */}
+      {/* Stats Row - RTA Colors - Clickable Filters */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <StatCard title="Total Tasks" value={stats.total} icon={LayoutDashboard} colorClass="bg-slate-800" />
-        <StatCard title="In Progress" value={stats.active} icon={Activity} colorClass="bg-[#EE3124]" />
-        <StatCard title="Completed" value={stats.closed} icon={CheckCircle} colorClass="bg-emerald-600" />
-        <StatCard title="Urgent" value={stats.urgent} icon={AlertCircle} colorClass="bg-orange-500" />
+        <StatCard
+          title="Total Tasks"
+          value={stats.total}
+          icon={LayoutDashboard}
+          colorClass="bg-slate-800"
+          onClick={clearFilters}
+          isActive={!hasActiveFilters}
+        />
+        <StatCard
+          title="In Progress"
+          value={stats.active}
+          icon={Activity}
+          colorClass="bg-[#EE3124]"
+          onClick={() => { clearFilters(); setFilterStatus('Active'); }}
+          isActive={filterStatus === 'Active' && !filterUrgent}
+        />
+        <StatCard
+          title="Completed"
+          value={stats.closed}
+          icon={CheckCircle}
+          colorClass="bg-emerald-600"
+          onClick={() => { clearFilters(); setFilterStatus('Closed'); }}
+          isActive={filterStatus === 'Closed' && !filterUrgent}
+        />
+        <StatCard
+          title="Urgent"
+          value={stats.urgent}
+          icon={AlertCircle}
+          colorClass="bg-orange-500"
+          onClick={() => { clearFilters(); setFilterUrgent(true); }}
+          isActive={filterUrgent}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -214,12 +280,13 @@ export default function ManagerDashboard() {
             </h2>
 
             {/* Filters */}
-            <div className="flex items-center space-x-2 w-full sm:w-auto">
+            <div className="flex items-center space-x-2 w-full sm:w-auto flex-wrap gap-2">
               <div className="relative flex-1 sm:flex-none">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
                   placeholder="Search..."
+                  value={searchTerm}
                   className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-[#EE3124] w-full"
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -232,6 +299,26 @@ export default function ManagerDashboard() {
                 <option value="All">All Team</option>
                 {userList.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
+              <select
+                className="py-2 pl-3 pr-8 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-[#EE3124]"
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+              >
+                <option value="All">All Status</option>
+                <option value="New">New</option>
+                <option value="Active">Active</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Closed">Closed</option>
+              </select>
+              {hasActiveFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="flex items-center px-3 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+                >
+                  <X className="w-4 h-4 mr-1" />
+                  Clear
+                </button>
+              )}
             </div>
           </div>
 
@@ -248,7 +335,7 @@ export default function ManagerDashboard() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredItems.map((item) => (
-                  <tr key={item.WorkItemId} className="hover:bg-red-50/30 transition-colors group cursor-pointer">
+                  <tr key={item.WorkItemId} className="hover:bg-red-50/30 transition-colors group">
                     <td className="px-6 py-4 font-medium text-slate-600">#{item.WorkItemId}</td>
                     <td className="px-6 py-4">
                       <div className="font-semibold text-slate-900">{item.Title}</div>
@@ -257,16 +344,26 @@ export default function ManagerDashboard() {
                         {item.Custom_Urgency && <span className="text-[#EE3124] font-bold ml-2 flex items-center"><AlertCircle className="w-3 h-3 mr-1" /> {item.Custom_Urgency}</span>}
                       </div>
                     </td>
+                    {/* Clickable Assignee - filters by this user */}
                     <td className="px-6 py-4">
-                      <div className="flex items-center">
+                      <div
+                        className="flex items-center cursor-pointer hover:bg-slate-100 rounded p-1 -m-1 group/filter"
+                        onClick={() => setFilterUser(item.AssignedTo)}
+                        title={`Filter by ${item.AssignedTo}`}
+                      >
                         <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 border border-slate-200 flex items-center justify-center text-xs font-bold mr-2">
                           {item.AssignedTo.charAt(0)}
                         </div>
-                        {item.AssignedTo}
+                        <span className="hover:underline">{item.AssignedTo}</span>
                       </div>
                     </td>
+                    {/* Clickable Status - filters by this status */}
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(item.State)}`}>
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-slate-300 transition-all ${getStatusColor(item.State)}`}
+                        onClick={() => setFilterStatus(item.State)}
+                        title={`Filter by ${item.State}`}
+                      >
                         {item.State}
                       </span>
                     </td>
@@ -288,9 +385,10 @@ export default function ManagerDashboard() {
         {/* Right Column: Analytics */}
         <div className="space-y-8">
 
-          {/* Status Breakdown */}
+          {/* Status Breakdown - Clickable Pie Chart */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
             <h2 className="text-lg font-bold mb-4 text-slate-900">Status Overview</h2>
+            <p className="text-xs text-slate-400 mb-2">Click a segment to filter</p>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -300,14 +398,15 @@ export default function ManagerDashboard() {
                     outerRadius={80}
                     paddingAngle={2}
                     dataKey="value"
+                    onClick={(data) => setFilterStatus(data.name)}
+                    style={{ cursor: 'pointer' }}
                   >
                     {chartData.pieData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
                     ))}
                   </Pie>
                   <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }} />
-                  <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                </PieChart>
+                  <Legend verticalAlign="bottom" height={36} iconType="circle" /></PieChart>
               </ResponsiveContainer>
             </div>
           </div>
