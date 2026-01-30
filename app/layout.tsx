@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "RTA Dashboard",
-  description: "Daily Operations Report",
+  title: "ITSD Task Tracker - Daily Reports",
+  description: "Daily Team Operations Report - Azure DevOps Dashboard",
+  icons: {
+    icon: '/daily-reports/favicon.png',
+  },
 };
 
 export default function RootLayout({
@@ -12,8 +15,26 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="antialiased bg-slate-50 text-slate-900">{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Theme initialization script - prevents flash of wrong theme */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  const theme = localStorage.getItem('theme') || 
+                    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+                  document.documentElement.setAttribute('data-theme', theme);
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
+      <body className="antialiased bg-azure-bg text-azure-text">
+        {children}
+      </body>
     </html>
   );
 }

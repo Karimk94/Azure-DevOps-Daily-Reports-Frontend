@@ -1,14 +1,151 @@
 @import "tailwindcss";
 
+/* ============================================
+   Azure DevOps + RTA Mixed Theme
+   ============================================ */
+
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 248, 250, 252;
-  --background-end-rgb: 248, 250, 252;
+  /* Azure DevOps Primary Colors */
+  --azure-primary: #0078D4;
+  --azure-primary-hover: #106EBE;
+  
+  /* RTA Accent Colors */
+  --rta-red: #EE3124;
+  --rta-red-hover: #CC2920;
+  
+  /* Light Mode Colors */
+  --azure-bg: #FAFAFA;
+  --azure-surface: #FFFFFF;
+  --azure-surface-hover: #F3F2F1;
+  --azure-text: #323130;
+  --azure-text-secondary: #605E5C;
+  --azure-border: #EDEBE9;
+  --azure-hover: #F3F2F1;
+  
+  /* Chart Colors (Mix of Azure and RTA) */
+  --chart-1: #0078D4;
+  --chart-2: #EE3124;
+  --chart-3: #107C10;
+  --chart-4: #5C2D91;
+  --chart-5: #FF8C00;
 }
 
+[data-theme="dark"] {
+  /* Azure DevOps Dark Mode */
+  --azure-bg: #1B1A19;
+  --azure-surface: #252423;
+  --azure-surface-hover: #3B3A39;
+  --azure-text: #F3F2F1;
+  --azure-text-secondary: #B3B0AD;
+  --azure-border: #3B3A39;
+  --azure-hover: #3B3A39;
+}
+
+/* ============================================
+   Base Styles
+   ============================================ */
+
 body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))) rgb(var(--background-start-rgb));
+  background-color: var(--azure-bg);
+  color: var(--azure-text);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ============================================
+   Utility Classes
+   ============================================ */
+
+.bg-azure-bg { background-color: var(--azure-bg); }
+.bg-azure-surface { background-color: var(--azure-surface); }
+.bg-azure-hover { background-color: var(--azure-hover); }
+.bg-azure-primary { background-color: var(--azure-primary); }
+.bg-rta-red { background-color: var(--rta-red); }
+
+.text-azure-text { color: var(--azure-text); }
+.text-azure-text-secondary { color: var(--azure-text-secondary); }
+.text-azure-primary { color: var(--azure-primary); }
+.text-rta-red { color: var(--rta-red); }
+
+.border-azure-border { border-color: var(--azure-border); }
+.border-azure-primary { border-color: var(--azure-primary); }
+.border-rta-red { border-color: var(--rta-red); }
+
+/* Hover States */
+.hover\:bg-azure-hover:hover { background-color: var(--azure-hover); }
+.hover\:bg-azure-primary-hover:hover { background-color: var(--azure-primary-hover); }
+.hover\:bg-rta-red-hover:hover { background-color: var(--rta-red-hover); }
+
+/* Focus Ring */
+.focus\:ring-azure-primary:focus {
+  --tw-ring-color: var(--azure-primary);
+}
+.focus\:ring-rta-red:focus {
+  --tw-ring-color: var(--rta-red);
+}
+
+/* ============================================
+   Component Styles
+   ============================================ */
+
+/* Card Style */
+.card {
+  background-color: var(--azure-surface);
+  border: 1px solid var(--azure-border);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Input Style */
+input, select {
+  background-color: var(--azure-surface);
+  border-color: var(--azure-border);
+  color: var(--azure-text);
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+input:focus, select:focus {
+  border-color: var(--azure-primary);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 120, 212, 0.2);
+}
+
+/* Table styles */
+table {
+  color: var(--azure-text);
+}
+
+thead {
+  background-color: var(--azure-surface-hover);
+}
+
+[data-theme="dark"] thead {
+  background-color: var(--azure-surface);
+}
+
+tbody tr {
+  border-bottom: 1px solid var(--azure-border);
+}
+
+tbody tr:hover {
+  background-color: var(--azure-hover);
+}
+
+/* Scrollbar styling for dark mode */
+[data-theme="dark"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: var(--azure-bg);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--azure-border);
+  border-radius: 4px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--azure-text-secondary);
 }

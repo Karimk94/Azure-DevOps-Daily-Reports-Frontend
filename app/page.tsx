@@ -2,7 +2,10 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { LayoutDashboard, CheckCircle, AlertCircle, Users, CheckSquare, Activity, Search, Calendar, X } from 'lucide-react';
+import { LayoutDashboard, CheckCircle, AlertCircle, Users, CheckSquare, Activity, Search, Calendar, X, Shield, LogOut } from 'lucide-react';
+import ThemeToggle from './components/ThemeToggle';
+import AccessDenied from './components/AccessDenied';
+import LoginForm from './components/LoginForm';
 
 // --- TYPE DEFINITIONS ---
 
@@ -42,16 +45,24 @@ interface StatCardProps {
   isActive?: boolean;
 }
 
-// RTA Branded Palette
-// Red: #EE3124, Black: #000000, Dark Grey: #333333
-const COLORS = ['#EE3124', '#333333', '#666666', '#999999', '#B91C1C'];
+interface AuthState {
+  isAdmin: boolean;
+  userName: string;
+  isLoading: boolean;
+  error: string | null;
+  authToken: string | null;
+  needsLogin: boolean;
+}
+
+// Mixed Color Palette - Azure DevOps + RTA
+const COLORS = ['#0078D4', '#EE3124', '#107C10', '#5C2D91', '#FF8C00'];
 
 const getStatusColor = (state: string) => {
   switch (state) {
-    case 'Closed': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    case 'Active': return 'bg-red-50 text-red-700 border-red-200 font-bold'; // RTA Active Highlight
-    case 'New': return 'bg-gray-100 text-gray-700 border-gray-200';
-    default: return 'bg-orange-50 text-orange-700 border-orange-200';
+    case 'Closed': return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800';
+    case 'Active': return 'bg-blue-100 text-blue-700 border-blue-200 font-bold dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800';
+    case 'New': return 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700';
+    default: return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800';
   }
 };
 
@@ -64,22 +75,42 @@ const formatDate = (dateStr: string) => {
 
 const StatCard = ({ title, value, icon: Icon, colorClass, onClick, isActive }: StatCardProps) => (
   <div
-    className={`bg-white p-6 rounded-lg shadow-sm border flex items-center space-x-4 cursor-pointer hover:shadow-md transition-all ${isActive ? 'ring-2 ring-[#EE3124] border-[#EE3124]' : 'border-slate-100'}`}
+    className={`bg-azure-surface p-6 rounded-lg shadow-sm border flex items-center space-x-4 cursor-pointer hover:shadow-md transition-all ${isActive ? 'ring-2 ring-[#0078D4] border-azure-primary' : 'border-azure-border'}`}
     onClick={onClick}
   >
     <div className={`p-3 rounded-md ${colorClass}`}>
       <Icon className="w-6 h-6 text-white" />
     </div>
     <div>
-      <p className="text-xs text-slate-500 font-semibold uppercase tracking-wide">{title}</p>
-      <h3 className="text-3xl font-bold text-slate-900">{value}</h3>
+      <p className="text-xs text-azure-text-secondary font-semibold uppercase tracking-wide">{title}</p>
+      <h3 className="text-3xl font-bold text-azure-text">{value}</h3>
     </div>
   </div>
+);
+
+// Loading Component
+const LoadingSpinner = () => (
+  <main className="min-h-screen bg-azure-bg flex items-center justify-center">
+    <div className="text-center">
+      <div className="w-12 h-12 border-4 border-azure-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+      <p className="text-azure-text-secondary">Verifying access...</p>
+    </div>
+  </main>
 );
 
 export default function ManagerDashboard() {
   const [filterUser, setFilterUser] = useState<string>('All');
   const [searchTerm, setSearchTerm] = useState<string>('');
+
+  // --- AUTH STATE ---
+  const [auth, setAuth] = useState<AuthState>({
+    isAdmin: false,
+    userName: '',
+    isLoading: true,  // Start with loading to try auto-check first
+    error: null,
+    authToken: null,
+    needsLogin: false  // Start false, will be set to true only if auto-check fails
+  });
 
   // --- DATE PICKER STATE ---
   const getTodayString = () => {
@@ -94,8 +125,94 @@ export default function ManagerDashboard() {
 
   // --- STATE ---
   const [apiData, setApiData] = useState<ApiWorkItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // --- CHECK SESSION ON LOAD ---
+  useEffect(() => {
+    // Only check sessionStorage for existing auth
+    // No auto-check to avoid browser popup
+    const savedAuth = sessionStorage.getItem('auth');
+    if (savedAuth) {
+      try {
+        const parsed = JSON.parse(savedAuth);
+        setAuth({
+          isAdmin: parsed.is_admin,
+          userName: parsed.user_name,
+          isLoading: false,
+          error: null,
+          authToken: parsed.auth_token,
+          needsLogin: false
+        });
+        return;
+      } catch (e) {
+        sessionStorage.removeItem('auth');
+      }
+    }
+
+    // No saved session - show login form
+    setAuth({
+      isAdmin: false,
+      userName: '',
+      isLoading: false,
+      error: null,
+      authToken: null,
+      needsLogin: true
+    });
+  }, []);
+
+  // --- LOGIN HANDLER ---
+  const handleLogin = async (username: string, password: string) => {
+    setAuth(prev => ({ ...prev, isLoading: true, error: null }));
+    try {
+      const response = await fetch('/daily-reports/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || 'Login failed');
+      }
+
+      // Save to session storage
+      sessionStorage.setItem('auth', JSON.stringify(data));
+
+      setAuth({
+        isAdmin: data.is_admin,
+        userName: data.user_name,
+        isLoading: false,
+        error: null,
+        authToken: data.auth_token,
+        needsLogin: false
+      });
+    } catch (err: any) {
+      console.error('Login failed:', err);
+      setAuth({
+        isAdmin: false,
+        userName: '',
+        isLoading: false,
+        error: err.message || 'Login failed',
+        authToken: null,
+        needsLogin: true
+      });
+    }
+  };
+
+  // --- LOGOUT HANDLER ---
+  const handleLogout = () => {
+    sessionStorage.removeItem('auth');
+    setAuth({
+      isAdmin: false,
+      userName: '',
+      isLoading: false,
+      error: null,
+      authToken: null,
+      needsLogin: true
+    });
+  };
 
   // --- CLEAR ALL FILTERS ---
   const clearFilters = () => {
@@ -108,11 +225,13 @@ export default function ManagerDashboard() {
   const hasActiveFilters = filterUser !== 'All' || filterStatus !== 'All' || filterUrgent || searchTerm !== '';
 
   useEffect(() => {
+    // Only fetch data if user is admin
+    if (!auth.isAdmin || auth.isLoading) return;
+
     const fetchData = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        // Fetch through the Next.js API proxy route with date filter
         const url = selectedDate
           ? `/daily-reports/api/reports?date=${selectedDate}`
           : '/daily-reports/api/reports';
@@ -131,7 +250,7 @@ export default function ManagerDashboard() {
     };
 
     fetchData();
-  }, [selectedDate]);
+  }, [selectedDate, auth.isAdmin, auth.isLoading]);
 
   // --- MEMOIZED RELATIONAL DATA ---
   const { processedData, stats, chartData, userList } = useMemo(() => {
@@ -189,57 +308,103 @@ export default function ManagerDashboard() {
     return matchesUser && matchesStatus && matchesSearch && matchesUrgent;
   });
 
+  // --- SHOW LOGIN FORM ---
+  if (auth.needsLogin) {
+    return (
+      <LoginForm
+        onLogin={handleLogin}
+        isLoading={auth.isLoading}
+        error={auth.error}
+      />
+    );
+  }
+
+  // --- AUTH LOADING STATE ---
+  if (auth.isLoading) {
+    return <LoadingSpinner />;
+  }
+
+  // --- ACCESS DENIED (logged in but not admin) ---
+  if (!auth.isAdmin) {
+    return <AccessDenied userName={auth.userName} error="You are not a Project Administrator" />;
+  }
+
+  // --- DATA LOADING STATE ---
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-slate-50 font-sans text-slate-800 p-8 flex items-center justify-center">
-        <p className="text-lg text-slate-500">Loading dashboard data...</p>
+      <main className="min-h-screen bg-azure-bg font-sans p-8 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-12 h-12 border-4 border-azure-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-azure-text-secondary">Loading dashboard data...</p>
+        </div>
       </main>
     );
   }
 
   if (error) {
     return (
-      <main className="min-h-screen bg-slate-50 font-sans text-slate-800 p-8 flex items-center justify-center">
+      <main className="min-h-screen bg-azure-bg font-sans p-8 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-lg text-red-500 mb-2">Error loading data</p>
-          <p className="text-slate-500">{error}</p>
+          <p className="text-lg text-rta-red mb-2">Error loading data</p>
+          <p className="text-azure-text-secondary">{error}</p>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 font-sans text-slate-800 p-8">
-      {/* RTA Header Style */}
-      <div className="flex flex-col md:flex-row justify-between items-center mb-8 bg-white p-6 rounded-xl shadow-sm border-l-4 border-[#EE3124]">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">ITSD Task Tracker</h1>
-          <p className="text-slate-500 mt-1 text-sm">Daily Team Operations Report</p>
+    <main className="min-h-screen bg-azure-bg font-sans text-azure-text p-8">
+      {/* Header with Logo, Title, and Controls */}
+      <div className="flex flex-col md:flex-row justify-between items-center mb-8 bg-azure-surface p-6 rounded-xl shadow-sm border-l-4 border-rta-red border-azure-border">
+        <div className="flex items-center space-x-4">
+          {/* RTA Logo */}
+          <img
+            src="/daily-reports/logo.png"
+            alt="RTA Logo"
+            className="h-10 object-contain"
+          />
+          <div>
+            <h1 className="text-3xl font-bold text-azure-text tracking-tight">ITSD Task Tracker</h1>
+            <p className="text-azure-text-secondary mt-1 text-sm flex items-center">
+              <Shield className="w-4 h-4 mr-1 text-azure-primary" />
+              {auth.userName} • Project Administrator
+            </p>
+          </div>
         </div>
         <div className="flex items-center space-x-3 mt-4 md:mt-0">
+          {/* Theme Toggle */}
+          <ThemeToggle />
+
           {/* Date Picker */}
-          <div className="flex items-center space-x-2 mr-4">
-            <Calendar className="w-5 h-5 text-[#EE3124]" />
+          <div className="flex items-center space-x-2">
+            <Calendar className="w-5 h-5 text-azure-primary" />
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#EE3124] focus:border-transparent cursor-pointer"
+              className="px-3 py-2 bg-azure-surface border border-azure-border rounded-md text-sm font-medium text-azure-text focus:outline-none focus:ring-2 focus:ring-azure-primary focus:border-transparent cursor-pointer"
             />
           </div>
-          <button className="bg-[#EE3124] hover:bg-red-700 text-white px-5 py-2.5 rounded-md text-sm font-semibold shadow-sm transition-colors">
+          <button className="bg-azure-primary hover:bg-[#106EBE] text-white px-5 py-2.5 rounded-md text-sm font-semibold shadow-sm transition-colors">
             Export Report
+          </button>
+          <button
+            onClick={handleLogout}
+            className="p-2.5 text-azure-text-secondary hover:text-rta-red hover:bg-azure-hover rounded-md transition-colors"
+            title="Logout"
+          >
+            <LogOut className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* Stats Row - RTA Colors - Clickable Filters */}
+      {/* Stats Row - Mixed Colors - Clickable Filters */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <StatCard
           title="Total Tasks"
           value={stats.total}
           icon={LayoutDashboard}
-          colorClass="bg-slate-800"
+          colorClass="bg-slate-700"
           onClick={clearFilters}
           isActive={!hasActiveFilters}
         />
@@ -247,7 +412,7 @@ export default function ManagerDashboard() {
           title="In Progress"
           value={stats.active}
           icon={Activity}
-          colorClass="bg-[#EE3124]"
+          colorClass="bg-azure-primary"
           onClick={() => { clearFilters(); setFilterStatus('Active'); }}
           isActive={filterStatus === 'Active' && !filterUrgent}
         />
@@ -263,7 +428,7 @@ export default function ManagerDashboard() {
           title="Urgent"
           value={stats.urgent}
           icon={AlertCircle}
-          colorClass="bg-orange-500"
+          colorClass="bg-rta-red"
           onClick={() => { clearFilters(); setFilterUrgent(true); }}
           isActive={filterUrgent}
         />
@@ -272,27 +437,27 @@ export default function ManagerDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
         {/* Left Column: List */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col">
-          <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-            <h2 className="text-lg font-bold flex items-center text-slate-900">
-              <CheckSquare className="w-5 h-5 mr-2 text-[#EE3124]" />
+        <div className="lg:col-span-2 bg-azure-surface rounded-xl shadow-sm border border-azure-border flex flex-col">
+          <div className="p-6 border-b border-azure-border flex flex-col sm:flex-row justify-between items-center gap-4">
+            <h2 className="text-lg font-bold flex items-center text-azure-text">
+              <CheckSquare className="w-5 h-5 mr-2 text-azure-primary" />
               Work Items
             </h2>
 
             {/* Filters */}
             <div className="flex items-center space-x-2 w-full sm:w-auto flex-wrap gap-2">
               <div className="relative flex-1 sm:flex-none">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-azure-text-secondary" />
                 <input
                   type="text"
                   placeholder="Search..."
                   value={searchTerm}
-                  className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-[#EE3124] w-full"
+                  className="pl-9 pr-4 py-2 bg-azure-surface border border-azure-border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-azure-primary w-full"
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
               <select
-                className="py-2 pl-3 pr-8 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-[#EE3124]"
+                className="py-2 pl-3 pr-8 bg-azure-surface border border-azure-border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-azure-primary"
                 value={filterUser}
                 onChange={(e) => setFilterUser(e.target.value)}
               >
@@ -300,7 +465,7 @@ export default function ManagerDashboard() {
                 {userList.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
               <select
-                className="py-2 pl-3 pr-8 bg-slate-50 border border-slate-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-[#EE3124]"
+                className="py-2 pl-3 pr-8 bg-azure-surface border border-azure-border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-azure-primary"
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
               >
@@ -313,7 +478,7 @@ export default function ManagerDashboard() {
               {hasActiveFilters && (
                 <button
                   onClick={clearFilters}
-                  className="flex items-center px-3 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+                  className="flex items-center px-3 py-2 text-sm text-azure-text-secondary bg-azure-hover hover:bg-azure-surface-hover rounded-md transition-colors border border-azure-border"
                 >
                   <X className="w-4 h-4 mr-1" />
                   Clear
@@ -324,7 +489,7 @@ export default function ManagerDashboard() {
 
           <div className="overflow-x-auto flex-1">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
+              <thead className="bg-azure-hover text-azure-text-secondary font-medium border-b border-azure-border">
                 <tr>
                   <th className="px-6 py-4">ID</th>
                   <th className="px-6 py-4">Title</th>
@@ -333,41 +498,41 @@ export default function ManagerDashboard() {
                   <th className="px-6 py-4">Date</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-azure-border">
                 {filteredItems.map((item) => (
-                  <tr key={item.WorkItemId} className="hover:bg-red-50/30 transition-colors group">
-                    <td className="px-6 py-4 font-medium text-slate-600">#{item.WorkItemId}</td>
+                  <tr key={item.WorkItemId} className="hover:bg-azure-hover transition-colors group">
+                    <td className="px-6 py-4 font-medium text-azure-text-secondary">#{item.WorkItemId}</td>
                     <td className="px-6 py-4">
-                      <div className="font-semibold text-slate-900">{item.Title}</div>
-                      <div className="text-xs text-slate-400 mt-0.5 flex items-center">
+                      <div className="font-semibold text-azure-text">{item.Title}</div>
+                      <div className="text-xs text-azure-text-secondary mt-0.5 flex items-center">
                         {item.WorkItemType}
-                        {item.Custom_Urgency && <span className="text-[#EE3124] font-bold ml-2 flex items-center"><AlertCircle className="w-3 h-3 mr-1" /> {item.Custom_Urgency}</span>}
+                        {item.Custom_Urgency && <span className="text-rta-red font-bold ml-2 flex items-center"><AlertCircle className="w-3 h-3 mr-1" /> {item.Custom_Urgency}</span>}
                       </div>
                     </td>
                     {/* Clickable Assignee - filters by this user */}
                     <td className="px-6 py-4">
                       <div
-                        className="flex items-center cursor-pointer hover:bg-slate-100 rounded p-1 -m-1 group/filter"
+                        className="flex items-center cursor-pointer hover:bg-azure-hover rounded p-1 -m-1 group/filter"
                         onClick={() => setFilterUser(item.AssignedTo)}
                         title={`Filter by ${item.AssignedTo}`}
                       >
-                        <div className="w-6 h-6 rounded-full bg-slate-100 text-slate-600 border border-slate-200 flex items-center justify-center text-xs font-bold mr-2">
+                        <div className="w-6 h-6 rounded-full bg-azure-primary/10 text-azure-primary border border-azure-primary/20 flex items-center justify-center text-xs font-bold mr-2">
                           {item.AssignedTo.charAt(0)}
                         </div>
-                        <span className="hover:underline">{item.AssignedTo}</span>
+                        <span className="hover:underline text-azure-text">{item.AssignedTo}</span>
                       </div>
                     </td>
                     {/* Clickable Status - filters by this status */}
                     <td className="px-6 py-4">
                       <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-slate-300 transition-all ${getStatusColor(item.State)}`}
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-azure-border transition-all ${getStatusColor(item.State)}`}
                         onClick={() => setFilterStatus(item.State)}
                         title={`Filter by ${item.State}`}
                       >
                         {item.State}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-slate-500">
+                    <td className="px-6 py-4 text-azure-text-secondary">
                       {formatDate(item.ChangedDate)}
                     </td>
                   </tr>
@@ -375,7 +540,7 @@ export default function ManagerDashboard() {
               </tbody>
             </table>
             {filteredItems.length === 0 && (
-              <div className="p-8 text-center text-slate-400">
+              <div className="p-8 text-center text-azure-text-secondary">
                 No items found matching your filters.
               </div>
             )}
@@ -386,9 +551,9 @@ export default function ManagerDashboard() {
         <div className="space-y-8">
 
           {/* Status Breakdown - Clickable Pie Chart */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-            <h2 className="text-lg font-bold mb-4 text-slate-900">Status Overview</h2>
-            <p className="text-xs text-slate-400 mb-2">Click a segment to filter</p>
+          <div className="bg-azure-surface p-6 rounded-xl shadow-sm border border-azure-border">
+            <h2 className="text-lg font-bold mb-4 text-azure-text">Status Overview</h2>
+            <p className="text-xs text-azure-text-secondary mb-2">Click a segment to filter</p>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
@@ -405,16 +570,25 @@ export default function ManagerDashboard() {
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }} />
-                  <Legend verticalAlign="bottom" height={36} iconType="circle" /></PieChart>
+                  <Tooltip
+                    contentStyle={{
+                      borderRadius: '8px',
+                      border: 'none',
+                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                      backgroundColor: 'var(--azure-surface)',
+                      color: 'var(--azure-text)'
+                    }}
+                  />
+                  <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                </PieChart>
               </ResponsiveContainer>
             </div>
           </div>
 
           {/* User Workload Summary */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-            <h2 className="text-lg font-bold mb-4 flex items-center text-slate-900">
-              <Users className="w-5 h-5 mr-2 text-[#EE3124]" />
+          <div className="bg-azure-surface p-6 rounded-xl shadow-sm border border-azure-border">
+            <h2 className="text-lg font-bold mb-4 flex items-center text-azure-text">
+              <Users className="w-5 h-5 mr-2 text-azure-primary" />
               Team Performance
             </h2>
             <div className="space-y-4">
@@ -423,20 +597,24 @@ export default function ManagerDashboard() {
                 const active = userItems.filter(i => i.State !== 'Closed').length;
                 const closed = userItems.length - active;
                 return (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors border border-transparent hover:border-slate-200">
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-3 rounded-lg bg-azure-hover hover:bg-azure-surface-hover transition-colors border border-transparent hover:border-azure-border cursor-pointer"
+                    onClick={() => setFilterUser(user)}
+                  >
                     <div className="flex items-center">
-                      <div className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-700 shadow-sm mr-3">
+                      <div className="w-8 h-8 rounded-full bg-azure-surface border border-azure-border flex items-center justify-center text-xs font-bold text-azure-text shadow-sm mr-3">
                         {user.charAt(0)}
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-slate-800">{user}</p>
-                        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">{userItems.length} TOTAL</p>
+                        <p className="text-sm font-semibold text-azure-text">{user}</p>
+                        <p className="text-[10px] text-azure-text-secondary font-medium uppercase tracking-wider">{userItems.length} TOTAL</p>
                       </div>
                     </div>
                     <div className="text-right text-xs">
-                      <span className="text-[#EE3124] font-bold">{active} Active</span>
-                      <span className="mx-1.5 text-slate-300">/</span>
-                      <span className="text-emerald-600 font-bold">{closed} Done</span>
+                      <span className="text-azure-primary font-bold">{active} Active</span>
+                      <span className="mx-1.5 text-azure-text-secondary">/</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">{closed} Done</span>
                     </div>
                   </div>
                 );
